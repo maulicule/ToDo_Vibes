@@ -4,6 +4,25 @@ import React, { useState, useEffect, useRef } from 'react';
 import { id } from '@instantdb/react';
 import db from '../lib/db';
 import confetti from 'canvas-confetti';
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+  DragOverlay,
+  DragStartEvent,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 // Utility functions
 const MOTIVATIONAL_EMOJIS = ['🚀', '🌟', '⚡', '💪', '🎯', '✨', '🔥', '⭐'];
@@ -479,10 +498,10 @@ function Header() {
   );
 }
 
-function DottedAddCard({ onAddClick, isEmpty = false, compact = false }: { onAddClick: () => void; isEmpty?: boolean; compact?: boolean }) {
+function DottedAddCard({ onAddClick, isEmpty = false, compact = false, showPrioritySpacing = false }: { onAddClick: () => void; isEmpty?: boolean; compact?: boolean; showPrioritySpacing?: boolean }) {
   const themeColors = getThemeColors();
 
-  return (
+  const card = (
     <button
       onClick={onAddClick}
       className={`group w-full rounded-3xl border-4 border-dotted ${themeColors.border} ${themeColors.hoverBorder} bg-transparent transition-all hover:bg-white hover:shadow-lg active:scale-95 flex items-center justify-center ${
@@ -494,6 +513,18 @@ function DottedAddCard({ onAddClick, isEmpty = false, compact = false }: { onAdd
       </div>
     </button>
   );
+
+  if (showPrioritySpacing) {
+    return (
+      <div className="flex items-start gap-3">
+        {/* Empty space for alignment with priority number */}
+        <div className="flex-shrink-0 w-0" />
+        <div className="flex-1">{card}</div>
+      </div>
+    );
+  }
+
+  return card;
 }
 
 function EmptyState({ onAddClick }: { onAddClick: () => void }) {
@@ -611,7 +642,72 @@ interface Task {
   createdAt: number;
 }
 
-function TaskCard({ task, index, completedCount }: { task: Task; index: number; completedCount: number }) {
+function SortableTaskCard({ task, index, completedCount, totalInSection, wasDragged }: { task: Task; index: number; completedCount: number; totalInSection: number; wasDragged: boolean }) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: task.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition: transition || 'transform 250ms cubic-bezier(0.34, 1.56, 0.64, 1)', // Spring easing for smooth animation
+  };
+
+  const showPriorityNumber = !task.completed && totalInSection > 1;
+
+  return (
+    <div className="flex items-start gap-3">
+      {/* Priority Number - Only show for incomplete tasks when there are multiple */}
+      {showPriorityNumber && (
+        <div
+          className={`flex-shrink-0 pt-6 font-bold text-gray-800 transition-all ${
+            index === 0
+              ? 'text-2xl'
+              : index === 1
+              ? 'text-xl'
+              : 'text-lg'
+          }`}
+        >
+          {index + 1}
+        </div>
+      )}
+
+      <div ref={setNodeRef} style={style} className="flex-1">
+        <TaskCard
+          task={task}
+          index={index}
+          completedCount={completedCount}
+          isDragging={isDragging}
+          dragListeners={listeners}
+          dragAttributes={attributes}
+          justSettled={wasDragged}
+        />
+      </div>
+    </div>
+  );
+}
+
+function TaskCard({
+  task,
+  index,
+  completedCount,
+  isDragging = false,
+  dragListeners,
+  dragAttributes,
+  justSettled = false
+}: {
+  task: Task;
+  index: number;
+  completedCount: number;
+  isDragging?: boolean;
+  dragListeners?: any;
+  dragAttributes?: any;
+  justSettled?: boolean;
+}) {
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(task.title);
   const [showDelete, setShowDelete] = useState(false);
@@ -679,97 +775,99 @@ function TaskCard({ task, index, completedCount }: { task: Task; index: number; 
     if (task.completed) return themeColors.completed;
     if (daysOld === 2) return 'border-red-300 bg-red-50';
     if (daysOld === 1) return 'border-yellow-300 bg-yellow-50';
-    if (index === 0) return 'border-purple-300 bg-white animate-float';
-    if (index === 1) return 'border-pink-300 bg-white animate-float-delayed';
-    return 'border-blue-300 bg-white animate-float-more-delayed';
+    if (index === 0) return 'border-purple-300 bg-white';
+    if (index === 1) return 'border-pink-300 bg-white';
+    return 'border-blue-300 bg-white';
   };
 
   return (
     <div
-      className={`animate-bounce-in group relative rounded-3xl border-4 p-6 shadow-lg transition-all hover:shadow-xl ${getBorderColor()} ${
+      className={`group relative rounded-3xl border-4 p-6 shadow-lg transition-all hover:shadow-xl ${getBorderColor()} ${
         task.completed ? 'opacity-60' : ''
-      }`}
+      } ${justSettled ? 'animate-settle' : ''} ${isDragging ? 'opacity-50' : ''}`}
     >
-      <div className="flex flex-col gap-3">
-        <div className="flex items-center gap-4">
-          {/* Checkbox */}
-          <button
-            onClick={handleToggleComplete}
-            className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border-4 transition-all hover:scale-110 active:scale-90 ${
-              task.completed
-                ? themeColors.completedCheckbox
-                : 'border-gray-300 hover:border-purple-400'
-            }`}
-          >
-            {task.completed && <span className="text-2xl text-white">✓</span>}
-          </button>
-
-          {/* Priority Number - Only show for incomplete tasks */}
-          {!task.completed && (
-            <div
-              className={`flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl text-2xl font-bold text-white transition-all hover:animate-wiggle ${
-                index === 0
-                  ? 'bg-purple-500'
-                  : index === 1
-                  ? 'bg-pink-500'
-                  : 'bg-blue-500'
-              }`}
-            >
-              {index + 1}
-            </div>
-          )}
-
-          {/* Task Title */}
-          <div className="flex-1">
-            {isEditing ? (
-              <input
-                type="text"
-                value={editValue}
-                onChange={(e) => setEditValue(e.target.value)}
-                onBlur={handleSave}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleSave();
-                  if (e.key === 'Escape') {
-                    setEditValue(task.title);
-                    setIsEditing(false);
-                  }
-                }}
-                className="w-full rounded-xl border-2 border-purple-300 px-3 py-2 text-lg transition-all focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-200"
-                maxLength={100}
-                autoFocus
-              />
-            ) : (
-              <p
-                onClick={() => !task.completed && setIsEditing(true)}
-                className={`text-lg font-medium transition-all ${
-                  task.completed ? `${themeColors.completedText} line-through` : 'cursor-pointer text-gray-800'
-                }`}
-              >
-                {task.title}
-              </p>
-            )}
+      {/* Overdue Badge - Positioned at top edge */}
+      {badgeInfo && (
+        <div className="absolute -top-3 left-20 animate-fade-in">
+          <div className={`inline-flex items-center gap-2 rounded-full ${badgeInfo.color} ${badgeInfo.textColor} px-3 py-1 text-xs font-bold shadow-lg`}>
+            <span>{badgeInfo.emoji}</span>
+            <span>{badgeInfo.text}</span>
           </div>
+        </div>
+      )}
 
-          {/* Delete Button */}
-          <button
-            onClick={() => setShowDelete(true)}
-            className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl ${themeColors.trashIcon} opacity-0 transition-all hover:scale-110 hover:bg-red-50 hover:text-red-500 group-hover:opacity-100 active:scale-90`}
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-            </svg>
-          </button>
+      <div className="flex items-center gap-4">
+        {/* Drag Handle - Always visible on mobile, visible on hover for desktop */}
+        <div
+          {...dragListeners}
+          {...dragAttributes}
+          className={`flex h-10 w-10 flex-shrink-0 cursor-grab items-center justify-center rounded-xl text-gray-400 transition-all hover:bg-gray-100 hover:text-gray-600 active:cursor-grabbing ${
+            isDragging ? 'opacity-0' : 'opacity-100 md:opacity-0 md:group-hover:opacity-100'
+          }`}
+          style={{ touchAction: 'none' }}
+        >
+          <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
+            <circle cx="9" cy="6" r="1.5" />
+            <circle cx="15" cy="6" r="1.5" />
+            <circle cx="9" cy="12" r="1.5" />
+            <circle cx="15" cy="12" r="1.5" />
+            <circle cx="9" cy="18" r="1.5" />
+            <circle cx="15" cy="18" r="1.5" />
+          </svg>
         </div>
 
-        {/* Overdue Badge */}
-        {badgeInfo && (
-          <div className="ml-14 animate-fade-in">
-            <div className={`inline-flex items-center gap-2 rounded-full ${badgeInfo.color} ${badgeInfo.textColor} px-3 py-1 text-xs font-bold shadow-lg`}>
-              <span>{badgeInfo.emoji}</span>
-              <span>{badgeInfo.text}</span>
-            </div>
-          </div>
-        )}
+        {/* Checkbox */}
+        <button
+          onClick={handleToggleComplete}
+          className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border-4 transition-all hover:scale-110 active:scale-90 ${
+            task.completed
+              ? themeColors.completedCheckbox
+              : 'border-gray-300 hover:border-purple-400'
+          }`}
+        >
+          {task.completed && <span className="text-2xl text-white">✓</span>}
+        </button>
+
+        {/* Task Title */}
+        <div className="flex-1">
+          {isEditing ? (
+            <input
+              type="text"
+              value={editValue}
+              onChange={(e) => setEditValue(e.target.value)}
+              onBlur={handleSave}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleSave();
+                if (e.key === 'Escape') {
+                  setEditValue(task.title);
+                  setIsEditing(false);
+                }
+              }}
+              className="w-full rounded-xl border-2 border-purple-300 px-3 py-2 text-lg transition-all focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-200"
+              maxLength={100}
+              autoFocus
+            />
+          ) : (
+            <p
+              onClick={() => !task.completed && setIsEditing(true)}
+              className={`text-lg font-medium transition-all ${
+                task.completed ? `${themeColors.completedText} line-through` : 'cursor-pointer text-gray-800'
+              }`}
+            >
+              {task.title}
+            </p>
+          )}
+        </div>
+
+        {/* Delete Button */}
+        <button
+          onClick={() => setShowDelete(true)}
+          className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl ${themeColors.trashIcon} opacity-0 transition-all hover:scale-110 hover:bg-red-50 hover:text-red-500 group-hover:opacity-100 active:scale-90`}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+          </svg>
+        </button>
       </div>
 
       {/* Edit Message */}
@@ -897,6 +995,21 @@ function Main() {
   const [showAddModal, setShowAddModal] = useState(false);
   const prevIncompleteCountRef = useRef<number | null>(null);
   const themeColors = getThemeColors();
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [lastDraggedId, setLastDraggedId] = useState<string | null>(null);
+
+  // Configure sensors for drag and drop
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        delay: 180, // Long-press for mobile
+        tolerance: 8, // Allow slight movement before canceling
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
 
   // Daily reset check - run on mount and when tasks change
   useEffect(() => {
@@ -919,6 +1032,53 @@ function Main() {
 
   const incompleteTasks = tasks.filter((t: Task) => !t.completed);
   const completedTasks = tasks.filter((t: Task) => t.completed);
+
+  const handleDragStart = (event: DragStartEvent) => {
+    setActiveId(event.active.id as string);
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    const draggedId = active.id as string;
+    setActiveId(null);
+
+    if (!over || active.id === over.id) {
+      return;
+    }
+
+    // Determine which list we're working with
+    const activeTask = tasks.find((t) => t.id === active.id);
+    const overTask = tasks.find((t) => t.id === over.id);
+
+    if (!activeTask || !overTask) return;
+
+    // Only allow reordering within the same completion status
+    if (activeTask.completed !== overTask.completed) return;
+
+    // Get the appropriate task list
+    const taskList = activeTask.completed ? completedTasks : incompleteTasks;
+    const oldIndex = taskList.findIndex((t) => t.id === active.id);
+    const newIndex = taskList.findIndex((t) => t.id === over.id);
+
+    if (oldIndex === newIndex) return;
+
+    // Set the last dragged ID for animation
+    setLastDraggedId(draggedId);
+    setTimeout(() => setLastDraggedId(null), 400);
+
+    // Reorder the tasks
+    const reorderedTasks = arrayMove(taskList, oldIndex, newIndex);
+
+    // Update positions in database
+    db.transact(
+      reorderedTasks.map((task, index) =>
+        db.tx.tasks[task.id].update({
+          position: index,
+          updatedAt: Date.now(),
+        })
+      )
+    );
+  };
 
   // Only show completion modal when user completes the final task (not on reload)
   useEffect(() => {
@@ -947,53 +1107,88 @@ function Main() {
   }
 
   return (
-    <div className={`min-h-screen bg-gradient-to-br transition-colors duration-[30000ms] animate-gradient ${gradientClass}`}>
-      <div className="mx-auto max-w-3xl">
-        <Header />
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
+    >
+      <div className={`min-h-screen bg-gradient-to-br transition-colors duration-[30000ms] animate-gradient ${gradientClass}`}>
+        <div className="mx-auto max-w-3xl">
+          <Header />
 
-        <main className="p-6">
-          {tasks.length === 0 && <EmptyState onAddClick={() => setShowAddModal(true)} />}
+          <main className="p-6">
+            {tasks.length === 0 && <EmptyState onAddClick={() => setShowAddModal(true)} />}
 
-          {/* Show celebration message if all tasks are completed */}
-          {incompleteTasks.length === 0 && completedTasks.length > 0 && (
-            <AllCompleteMessage onAddClick={() => setShowAddModal(true)} />
-          )}
+            {/* Show celebration message if all tasks are completed */}
+            {incompleteTasks.length === 0 && completedTasks.length > 0 && (
+              <AllCompleteMessage onAddClick={() => setShowAddModal(true)} />
+            )}
 
-          {/* Incomplete Tasks */}
-          {incompleteTasks.length > 0 && (
-            <div className="space-y-4">
-              {incompleteTasks.map((task: Task, index: number) => (
-                <TaskCard key={task.id} task={task} index={index} completedCount={completedTasks.length} />
-              ))}
+            {/* Incomplete Tasks */}
+            {incompleteTasks.length > 0 && (
+              <SortableContext
+                items={incompleteTasks.map((t) => t.id)}
+                strategy={verticalListSortingStrategy}
+              >
+                <div className="space-y-4">
+                  {incompleteTasks.map((task: Task, index: number) => (
+                    <SortableTaskCard
+                      key={task.id}
+                      task={task}
+                      index={index}
+                      completedCount={completedTasks.length}
+                      totalInSection={incompleteTasks.length}
+                      wasDragged={lastDraggedId === task.id}
+                    />
+                  ))}
 
-              {/* Show dotted add card if less than 3 tasks */}
-              {incompleteTasks.length < 3 && (
-                <DottedAddCard onAddClick={() => setShowAddModal(true)} isEmpty={false} />
-              )}
-            </div>
-          )}
+                  {/* Show dotted add card if less than 3 tasks */}
+                  {incompleteTasks.length < 3 && (
+                    <DottedAddCard
+                      onAddClick={() => setShowAddModal(true)}
+                      isEmpty={false}
+                      showPrioritySpacing={incompleteTasks.length > 1}
+                    />
+                  )}
+                </div>
+              </SortableContext>
+            )}
 
-          {/* Completed Tasks */}
-          {completedTasks.length > 0 && (
-            <div className="mt-8">
-              <h3 className={`mb-4 text-sm font-bold uppercase tracking-wide ${themeColors.sectionHeader}`}>
-                Done ✓
-              </h3>
-              <div className="space-y-4">
-                {completedTasks.map((task: Task, index: number) => (
-                  <TaskCard key={task.id} task={task} index={index} completedCount={completedTasks.length} />
-                ))}
+            {/* Completed Tasks */}
+            {completedTasks.length > 0 && (
+              <div className="mt-8">
+                <h3 className={`mb-4 text-sm font-bold uppercase tracking-wide ${themeColors.sectionHeader}`}>
+                  Done ✓
+                </h3>
+                <SortableContext
+                  items={completedTasks.map((t) => t.id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  <div className="space-y-4">
+                    {completedTasks.map((task: Task, index: number) => (
+                      <SortableTaskCard
+                        key={task.id}
+                        task={task}
+                        index={index}
+                        completedCount={completedTasks.length}
+                        totalInSection={completedTasks.length}
+                        wasDragged={lastDraggedId === task.id}
+                      />
+                    ))}
+                  </div>
+                </SortableContext>
               </div>
-            </div>
-          )}
-        </main>
+            )}
+          </main>
 
-        <AddTaskButton taskCount={incompleteTasks.length} onAddClick={() => setShowAddModal(true)} />
+          <AddTaskButton taskCount={incompleteTasks.length} onAddClick={() => setShowAddModal(true)} />
+        </div>
+
+        {showAddModal && <AddTaskModal onClose={() => setShowAddModal(false)} taskCount={incompleteTasks.length} />}
+        {showAllComplete && <AllCompleteState taskCount={completedTasks.length} />}
       </div>
-
-      {showAddModal && <AddTaskModal onClose={() => setShowAddModal(false)} taskCount={incompleteTasks.length} />}
-      {showAllComplete && <AllCompleteState taskCount={completedTasks.length} />}
-    </div>
+    </DndContext>
   );
 }
 
