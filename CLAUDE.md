@@ -408,3 +408,35 @@ db.transact(
 - **Undo Deletion:** Should we support "undo" for accidental deletions?
 - **Daily Reset Time:** Midnight in user's timezone, or fixed UTC time?
 - **Completed Task Retention:** Keep completed tasks visible for how long? (Current day only, or persist?)
+
+---
+
+## 11. Development Changelog
+
+### Experimental Features Branch Merge (November 2025)
+
+**Branch:** `experimental-features` merged into `main`
+
+**Summary of Changes:**
+
+1. **Major UI/UX Refactor** (`threedooo/app/page.tsx`)
+   - Significant component restructuring (~400 line additions, ~120 deletions)
+   - Enhanced task management interface implementation
+   - Improved state management and user interactions
+
+2. **Styling Enhancements** (`threedooo/app/globals.css`)
+   - Added 20 lines of custom CSS styles
+   - Enhanced visual design to align with bright, vibrant design principles
+
+3. **Dependency Updates** (`package.json` & `package-lock.json`)
+   - Added 3 new package dependencies for enhanced functionality
+   - Updated lock file with 57 new lines
+
+4. **Documentation Updates**
+   - Minor refinements to `instant-rules.md`
+   - Added empty `index.html` placeholder file
+
+**Implementation Status:**
+- Core UI components refactored and enhanced
+- Foundation laid for full MVP feature implementation
+- Ready for further feature development per PRD specifications
