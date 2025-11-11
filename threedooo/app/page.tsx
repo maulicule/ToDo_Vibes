@@ -57,6 +57,9 @@ function getDaysElapsed(timestamp: number) {
 
 // Check if we need to run daily reset
 function shouldRunDailyReset() {
+  // Check if we're in a browser environment
+  if (typeof window === 'undefined') return false;
+
   const lastReset = localStorage.getItem('lastResetDate');
   const today = getLocalDateString(Date.now());
 
